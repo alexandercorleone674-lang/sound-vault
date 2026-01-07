@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # 1. Base de Datos (PostgreSQL)
+  postgres:
+    image: postgres:16-alpine
+    container_name: sv_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: soundvault_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sv_network
+
+  # 2. Storage Object Store (MinIO - S3 Compatible)
+  minio:
+    image: minio/minio
+    container_name: sv_storage
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # API Port (Usado por Backend)
+      - "9001:9001" # Console Port (Usado por Navegador)
+    volumes:
+      - minio_data:/data
+    networks:
+      - sv_network
+
+  # 3. Configuración Automática de Buckets (Cliente MinIO actualizado)
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Esperando a que MinIO inicie...';
+      sleep 5;
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/sv-private-vault || true;
+      /usr/bin/mc mb myminio/sv-public-previews || true;
+      /usr/bin/mc anonymous set download myminio/sv-public-previews;
+      echo 'Buckets configurados correctamente.';
+      exit 0;
+      "
+    networks:
+      - sv_network
+
+volumes:
+  postgres_data:
+  minio_data:
+
+networks:
+  sv_network:
+    driver: bridge
